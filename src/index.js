@@ -22,14 +22,30 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 /*
-  ✅ FIXED CORS CONFIGURATION
-  - Exact origin match (NO trailing slash)
-  - Supports cookies / auth headers
-  - Handles preflight requests required by RTK Query
+  CORS: allow origins from CORS_ORIGINS (comma-separated) or FRONTEND_URL.
+  No trailing slashes. Production frontend URL included by default.
 */
+function normalizeOrigin(url) {
+  return (url || "").trim().replace(/\/$/, "");
+}
+const corsOriginsFromEnv = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map(normalizeOrigin).filter(Boolean)
+  : [];
+const frontendUrl = normalizeOrigin(process.env.FRONTEND_URL || "http://localhost:8080");
+const corsOrigins = [...new Set([
+  ...corsOriginsFromEnv,
+  frontendUrl,
+  "https://green-uni-mindforntend.vercel.app",
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+].filter(Boolean))];
 app.use(
   cors({
-    origin: ["http://localhost:8080", "http://127.0.0.1:8080"],
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // same-origin or tools like Postman
+      const allowed = corsOrigins.includes(normalizeOrigin(origin));
+      cb(null, allowed ? origin : false);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
