@@ -1,13 +1,9 @@
 import mongoose from 'mongoose';
 
 const connectDB = async () => {
-  try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/greenunimind');
-    console.log(`MongoDB connected: ${conn.connection.host}`);
-  } catch (err) {
-    console.error('MongoDB connection error:', err.message);
-    process.exit(1);
-  }
+  if (mongoose.connection.readyState === 1) return;
+  const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/greenunimind');
+  console.log(`MongoDB connected: ${conn.connection.host}`);
 };
 
 export { connectDB };

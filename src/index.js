@@ -1,93 +1,12 @@
-import "dotenv/config";
-import express from "express";
-import cors from "cors";
 import { connectDB } from "./config/db.js";
+import app from "./app.js";
 
-// Models (kept if you need them initialized)
-import { User, Teacher, Course, Progress } from "./models/index.js";
-
-// Routes
-import authRoutes from "./routes/authRoutes.js";
-import userRoutes from "./routes/userRoutes.js";
-import categoryRoutes from "./routes/categoryRoutes.js";
-import courseRoutes from "./routes/courseRoutes.js";
-
-const app = express();
 const PORT = process.env.PORT || 5000;
-
-/* -------------------- MIDDLEWARE -------------------- */
-
-// Parse JSON
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-/*
-  CORS: allow origins from CORS_ORIGINS (comma-separated) or FRONTEND_URL.
-  No trailing slashes. Production frontend URL included by default.
-*/
-function normalizeOrigin(url) {
-  return (url || "").trim().replace(/\/$/, "");
-}
-const corsOriginsFromEnv = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(",").map(normalizeOrigin).filter(Boolean)
-  : [];
-const frontendUrl = normalizeOrigin(process.env.FRONTEND_URL || "http://localhost:8080");
-const corsOrigins = [...new Set([
-  ...corsOriginsFromEnv,
-  frontendUrl,
-  "https://green-uni-mindforntend.vercel.app",
-  "http://localhost:8080",
-  "http://127.0.0.1:8080",
-].filter(Boolean))];
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // same-origin or tools like Postman
-      const allowed = corsOrigins.includes(normalizeOrigin(origin));
-      cb(null, allowed ? origin : false);
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-// Handle preflight
-app.options("*", cors());
-
-/* -------------------- ROUTES -------------------- */
-
-// Auth routes
-app.use("/api/auth", authRoutes); // optional versioned path
-app.use("/auth", authRoutes);     // direct path (used by your frontend)
-
-// User routes
-app.use("/users", userRoutes);
-
-// Category routes
-app.use("/categories", categoryRoutes);
-
-// Course routes (public)
-app.use("/courses", courseRoutes);
-
-/* -------------------- HEALTH CHECK -------------------- */
-
-app.get("/api/health", (req, res) => {
-  res.json({
-    success: true,
-    message: "GreenUniMind API Running",
-  });
-});
-
-/* -------------------- DATABASE + SERVER START -------------------- */
 
 connectDB()
   .then(() => {
-    console.log("MongoDB Connected");
-
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
-      console.log("Available endpoints:");
       console.log("POST  /auth/login");
       console.log("POST  /users/create-student");
       console.log("POST  /users/create-teacher");
@@ -101,5 +20,3 @@ connectDB()
     console.error("Database connection failed:", err);
     process.exit(1);
   });
-
-export { connectDB, User, Teacher, Course, Progress };
