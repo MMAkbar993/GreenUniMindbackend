@@ -38,7 +38,10 @@ const allowedOrigins = [
   'http://localhost:8080',
   'http://127.0.0.1:5173',
   'http://127.0.0.1:8080',
-  ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL.replace(/\/+$/, '')] : []),
+  // Production frontend (Vercel)
+  'https://green-uni-mindforntend.vercel.app',
+  'https://green-uni-mindfrontend.vercel.app', // in case typo is fixed
+  ...(process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',').map((u) => u.trim().replace(/\/+$/, '')) : []),
 ].filter(Boolean);
 
 const normalizeOrigin = (origin) => (origin || '').replace(/\/+$/, '');
