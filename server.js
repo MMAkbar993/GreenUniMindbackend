@@ -5,6 +5,15 @@ import connectDB from './config/database.js';
 import { seedAchievements } from './controllers/achievementController.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+// Validate required env vars at startup (Vercel/serverless won't load .env - set in dashboard)
+const requiredEnv = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'MONGODB_URI'];
+const missing = requiredEnv.filter((k) => !process.env[k]?.trim());
+if (missing.length) {
+  console.error('Missing required env vars:', missing.join(', '));
+  console.error('Set them in Vercel: Project → Settings → Environment Variables');
+  process.exit(1);
+}
 import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
