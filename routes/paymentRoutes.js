@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, restrictTo } from '../middleware/auth.js';
 import {
   createCheckoutSession,
   createPaymentIntent,
@@ -18,7 +18,7 @@ import {
 } from '../controllers/paymentController.js';
 
 const router = express.Router();
-const teacherAuth = [protect];
+const teacherAuth = [protect, restrictTo('teacher')];
 
 router.post('/create-checkout-session', protect, createCheckoutSession);
 router.post('/create-payment-intent', protect, createPaymentIntent);
@@ -64,11 +64,11 @@ router.get('/student-transactions/:studentId', protect, async (req, res) => {
   }
 });
 
-router.get('/analytics/:teacherId', protect, (req, res) => {
+router.get('/analytics/:teacherId', ...teacherAuth, (req, res) => {
   res.json({ success: true, data: { daily: [], weekly: [], monthly: [] } });
 });
 
-router.get('/teacher-payouts/:teacherId', protect, async (req, res) => {
+router.get('/teacher-payouts/:teacherId', ...teacherAuth, async (req, res) => {
   try {
     const Transaction = (await import('../models/Transaction.js')).default;
     const mongoose = (await import('mongoose')).default;
@@ -82,27 +82,27 @@ router.get('/teacher-payouts/:teacherId', protect, async (req, res) => {
   }
 });
 
-router.post('/payout-request/:teacherId', protect, (req, res) => {
+router.post('/payout-request/:teacherId', ...teacherAuth, (req, res) => {
   res.json({ success: true, data: { message: 'Payout request submitted.', status: 'pending' } });
 });
 
-router.post('/export/:teacherId', protect, (req, res) => {
+router.post('/export/:teacherId', ...teacherAuth, (req, res) => {
   res.json({ success: true, data: [] });
 });
 
-router.get('/connect-stripe-url/:teacherId', protect, (req, res) => {
+router.get('/connect-stripe-url/:teacherId', ...teacherAuth, (req, res) => {
   res.json({ success: true, data: { url: null, message: 'Use Stripe Connect onboarding flow.' } });
 });
 
-router.post('/exchange-stripe-code', protect, (req, res) => {
+router.post('/exchange-stripe-code', ...teacherAuth, (req, res) => {
   res.json({ success: true, data: { connected: false, message: 'Use Stripe Connect onboarding flow.' } });
 });
 
-router.put('/payouts/preferences/:teacherId', protect, (req, res) => {
+router.put('/payouts/preferences/:teacherId', ...teacherAuth, (req, res) => {
   res.json({ success: true, data: { ...req.body, updated: true } });
 });
 
-router.get('/payouts/details/:payoutId', protect, (req, res) => {
+router.get('/payouts/details/:payoutId', ...teacherAuth, (req, res) => {
   res.json({ success: true, data: null });
 });
 

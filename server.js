@@ -10,7 +10,6 @@ import { seedAchievements } from './controllers/achievementController.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Validate required env vars at startup (Vercel/serverless won't load .env - set in dashboard)
 const requiredEnv = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'MONGODB_URI'];
 const missing = requiredEnv.filter((k) => !process.env[k]?.trim());
 if (missing.length) {
@@ -48,25 +47,56 @@ import subCategoryRoutes from './routes/subCategoryRoutes.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 connectDB();
 
 seedAchievements().catch((err) => console.warn('Achievement seed:', err?.message || err));
 
 const app = express();
 
-// Normalize origin (no trailing slash) so CORS header always matches browser comparison
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:8080',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:8080',
-  // Production frontend (Vercel)
-  'https://green-uni-mindforntend.vercel.app',
-  'https://green-uni-mindfrontend.vercel.app', // in case typo is fixed
-  ...(process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',').map((u) => u.trim().replace(/\/+$/, '')) : []),
-].filter(Boolean);
+// ─── Trust proxy (required for rate limiting behind reverse proxies / Vercel) ───
+if (isProduction) {
+  app.set('trust proxy', 1);
+}
 
+// ─── CORS CONFIGURATION ────────────────────────────────────────────────────────
+// Build allowed origins based on environment.
+// In production only explicitly trusted domains are permitted.
+// In development, localhost variants are included for convenience.
 const normalizeOrigin = (origin) => (origin || '').replace(/\/+$/, '');
+
+const buildAllowedOrigins = () => {
+  const origins = [];
+
+  if (!isProduction) {
+    origins.push(
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:8080',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:5174',
+      'http://127.0.0.1:8080',
+    );
+  }
+
+  origins.push(
+    'https://green-uni-mindforntend.vercel.app',
+    'https://green-uni-mindfrontend.vercel.app',
+    'https://www.greenunimind.com',
+  );
+
+  if (process.env.CLIENT_URL) {
+    process.env.CLIENT_URL.split(',').forEach((u) => {
+      const trimmed = u.trim().replace(/\/+$/, '');
+      if (trimmed) origins.push(trimmed);
+    });
+  }
+
+  return [...new Set(origins)];
+};
+
+const allowedOrigins = buildAllowedOrigins();
 
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -75,32 +105,96 @@ app.use(helmet({
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
+    // Allow server-to-server requests (no Origin header) only in development.
+    // In production, requests without an Origin header are blocked for
+    // authenticated endpoints (the browser always sends Origin on CORS requests).
+    if (!origin) {
+      return callback(null, !isProduction);
+    }
     const normalized = normalizeOrigin(origin);
-    const allowed = allowedOrigins.includes(normalized);
-    callback(allowed ? null : null, allowed ? normalized : false);
+    if (allowedOrigins.includes(normalized)) {
+      return callback(null, normalized);
+    }
+    return callback(null, false);
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Refresh-Token',
+    'X-Requested-With',
+    'X-Request-Timestamp',
+    'X-Request-Nonce',
+    'X-Request-Signature',
+  ],
+  exposedHeaders: [
+    'RateLimit-Limit',
+    'RateLimit-Remaining',
+    'RateLimit-Reset',
+    'Retry-After',
+  ],
+  maxAge: 86400,
 }));
 
+// ─── RATE LIMITING ──────────────────────────────────────────────────────────────
+// All limits are configurable via environment variables.
+// Key function: uses authenticated user ID when available, falls back to IP.
+const userOrIpKey = (req) => {
+  if (req.user?.id) return `user_${req.user.id}`;
+  return req.ip;
+};
+
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  standardHeaders: true,
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
+  max: parseInt(process.env.RATE_LIMIT_MAX || '200', 10),
+  standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests, please try again later.' },
+  keyGenerator: (req) => req.ip,
 });
 
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
+  windowMs: parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS || '900000', 10),
+  max: parseInt(process.env.AUTH_RATE_LIMIT_MAX || '15', 10),
+  standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { success: false, message: 'Too many auth attempts, please try again later.' },
+  skipSuccessfulRequests: true,
+});
+
+const aiLimiter = rateLimit({
+  windowMs: parseInt(process.env.AI_RATE_LIMIT_WINDOW_MS || '60000', 10),
+  max: parseInt(process.env.AI_RATE_LIMIT_MAX || '20', 10),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { success: false, message: 'AI request limit reached. Please wait before trying again.' },
+});
+
+const paymentLimiter = rateLimit({
+  windowMs: parseInt(process.env.PAYMENT_RATE_LIMIT_WINDOW_MS || '900000', 10),
+  max: parseInt(process.env.PAYMENT_RATE_LIMIT_MAX || '30', 10),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { success: false, message: 'Too many payment requests. Please try again later.' },
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: parseInt(process.env.UPLOAD_RATE_LIMIT_WINDOW_MS || '900000', 10),
+  max: parseInt(process.env.UPLOAD_RATE_LIMIT_MAX || '30', 10),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { success: false, message: 'Upload limit reached. Please try again later.' },
 });
 
 app.use('/api/', apiLimiter);
 app.use('/api/auth/', authLimiter);
+app.use('/api/ai/', aiLimiter);
+app.use('/api/payments/', paymentLimiter);
+app.use('/api/lectures/', uploadLimiter);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -110,6 +204,7 @@ app.use(hpp());
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// ─── ROUTES ─────────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/categories', categoryRoutes);
@@ -151,5 +246,5 @@ app.get('/health', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
 });

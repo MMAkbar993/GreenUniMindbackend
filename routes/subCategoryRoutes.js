@@ -1,5 +1,6 @@
 import express from 'express';
 import Subcategory from '../models/Subcategory.js';
+import { protect, restrictTo } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -31,7 +32,7 @@ router.get('/:subcategoryId/courses', async (req, res) => {
   }
 });
 
-router.post('/create-subCategory', async (req, res) => {
+router.post('/create-subCategory', protect, restrictTo('teacher'), async (req, res) => {
   try {
     const { categoryId, name, description } = req.body;
     const slug = name.toLowerCase().replace(/\s+/g, '-');
@@ -42,7 +43,7 @@ router.post('/create-subCategory', async (req, res) => {
   }
 });
 
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', protect, restrictTo('teacher'), async (req, res) => {
   try {
     const subcategory = await Subcategory.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!subcategory) return res.status(404).json({ success: false, message: 'Subcategory not found.' });
@@ -52,7 +53,7 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', protect, restrictTo('teacher'), async (req, res) => {
   try {
     await Subcategory.findByIdAndDelete(req.params.id);
     res.json({ success: true, data: { message: 'Subcategory deleted.' } });
