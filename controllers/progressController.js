@@ -1,7 +1,9 @@
+import mongoose from 'mongoose';
 import Course from '../models/Course.js';
 import Lecture from '../models/Lecture.js';
 import Progress from '../models/Progress.js';
 import User from '../models/User.js';
+import { generateCertificatePDF } from '../utils/certificateGenerator.js';
 
 /**
  * Get enrolled courses with progress for a student.
@@ -192,16 +194,32 @@ export const generateCertificate = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Complete all lectures to generate a certificate.' });
     }
 
+    const user = await User.findById(studentId).lean();
+    const course = await Course.findById(courseId).lean();
+
+    if (!user || !course) {
+      return res.status(404).json({ success: false, message: 'User or course not found.' });
+    }
+
+    const studentName = `${user.name.firstName} ${user.name.middleName ? user.name.middleName + ' ' : ''}${user.name.lastName}`;
+    const certificateId = `GUM-${courseId.toString().slice(-6).toUpperCase()}-${studentId.toString().slice(-6).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+
     progress.certificateGenerated = true;
     await progress.save();
 
     const { checkAndAwardAchievements } = await import('../utils/achievementService.js');
     checkAndAwardAchievements(studentId).catch(() => {});
 
-    res.json({
-      success: true,
-      data: { message: 'Certificate generated.', certificateGenerated: true },
+    const pdfBuffer = await generateCertificatePDF({
+      studentName,
+      courseName: course.title,
+      completionDate: new Date(),
+      certificateId,
     });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="GreenUniMind-Certificate-${course.title.replace(/[^a-zA-Z0-9]/g, '-')}.pdf"`);
+    res.send(pdfBuffer);
   } catch (err) {
     res.status(500).json({
       success: false,

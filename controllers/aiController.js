@@ -3,31 +3,48 @@
  * Endpoints: enhance-title, enhance-subtitle, enhance-description, suggest-category, generate-outline
  */
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-async function callGemini(prompt, apiKey) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function callGemini(prompt, apiKey, retries = 2) {
   if (!apiKey?.trim()) {
-    throw new Error('GEMINI_API_KEY is not configured. Set it in Vercel Environment Variables.');
+    throw new Error('GEMINI_API_KEY is not configured. Set it in environment variables.');
   }
-  const res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 1024,
-      },
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${errText.slice(0, 200)}`);
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1024,
+        },
+      }),
+    });
+
+    if (res.status === 429) {
+      if (attempt < retries) {
+        const waitMs = Math.pow(2, attempt + 1) * 1000;
+        console.warn(`Gemini 429 rate limit, retrying in ${waitMs}ms (attempt ${attempt + 1}/${retries})`);
+        await sleep(waitMs);
+        continue;
+      }
+      throw new Error('AI service rate limit exceeded. Please wait a minute and try again.');
+    }
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Gemini API error ${res.status}: ${errText.slice(0, 200)}`);
+    }
+
+    const json = await res.json();
+    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) throw new Error('No response from Gemini');
+    return text;
   }
-  const json = await res.json();
-  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-  if (!text) throw new Error('No response from Gemini');
-  return text;
 }
 
 /**
@@ -48,7 +65,8 @@ Original title: ${title}`;
     return res.json({ success: true, data: { enhancedTitle } });
   } catch (err) {
     console.error('AI enhanceTitle error:', err.message);
-    return res.status(500).json({
+    const status = err.message.includes('rate limit') ? 429 : 500;
+    return res.status(status).json({
       success: false,
       message: err.message || 'Failed to enhance title.',
     });
@@ -75,7 +93,8 @@ ${context}`;
     return res.json({ success: true, data: { enhancedSubtitle } });
   } catch (err) {
     console.error('AI enhanceSubtitle error:', err.message);
-    return res.status(500).json({
+    const status = err.message.includes('rate limit') ? 429 : 500;
+    return res.status(status).json({
       success: false,
       message: err.message || 'Failed to enhance subtitle.',
     });
@@ -104,7 +123,8 @@ ${context || ''}`;
     return res.json({ success: true, data: { enhancedDescription } });
   } catch (err) {
     console.error('AI enhanceDescription error:', err.message);
-    return res.status(500).json({
+    const status = err.message.includes('rate limit') ? 429 : 500;
+    return res.status(status).json({
       success: false,
       message: err.message || 'Failed to enhance description.',
     });
@@ -148,7 +168,8 @@ Respond in this exact JSON format only, no other text:
     });
   } catch (err) {
     console.error('AI suggestCategory error:', err.message);
-    return res.status(500).json({
+    const status = err.message.includes('rate limit') ? 429 : 500;
+    return res.status(status).json({
       success: false,
       message: err.message || 'Failed to suggest category.',
     });
@@ -184,7 +205,8 @@ ${levelHint}`;
     return res.json({ success: true, data: { outline: Array.isArray(outline) ? outline : [] } });
   } catch (err) {
     console.error('AI generateOutline error:', err.message);
-    return res.status(500).json({
+    const status = err.message.includes('rate limit') ? 429 : 500;
+    return res.status(status).json({
       success: false,
       message: err.message || 'Failed to generate outline.',
     });

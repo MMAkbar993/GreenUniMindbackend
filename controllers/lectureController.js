@@ -1,5 +1,6 @@
 import Course from '../models/Course.js';
 import Lecture from '../models/Lecture.js';
+import Progress from '../models/Progress.js';
 
 export const createLecture = async (req, res) => {
   try {
@@ -171,6 +172,119 @@ export const updateLecture = async (req, res) => {
       success: false,
       message: err.message || 'Failed to update lecture.',
     });
+  }
+};
+
+export const getLectureProgress = async (req, res) => {
+  try {
+    const { id: lectureId } = req.params;
+    const userId = req.user._id;
+
+    const lecture = await Lecture.findById(lectureId).select('courseId').lean();
+    if (!lecture) {
+      return res.status(404).json({ success: false, message: 'Lecture not found.' });
+    }
+
+    const progress = await Progress.findOne({ user: userId, course: lecture.courseId }).lean();
+    if (!progress) {
+      return res.json({
+        success: true,
+        data: { currentTime: 0, duration: 0, completionPercentage: 0, isCompleted: false, watchTime: 0 },
+      });
+    }
+
+    const lp = (progress.lectureProgress || []).find(
+      (p) => p.lectureId.toString() === lectureId
+    );
+
+    res.json({
+      success: true,
+      data: lp || { currentTime: 0, duration: 0, completionPercentage: 0, isCompleted: false, watchTime: 0 },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to get progress.' });
+  }
+};
+
+export const updateLectureProgress = async (req, res) => {
+  try {
+    const { id: lectureId } = req.params;
+    const userId = req.user._id;
+    const { currentTime, duration, completionPercentage, isCompleted, watchTime, lastUpdated } = req.body;
+
+    const lecture = await Lecture.findById(lectureId).select('courseId duration').lean();
+    if (!lecture) {
+      return res.status(404).json({ success: false, message: 'Lecture not found.' });
+    }
+
+    const courseId = lecture.courseId;
+    let progress = await Progress.findOne({ user: userId, course: courseId });
+    if (!progress) {
+      return res.status(404).json({ success: false, message: 'Enrollment not found. Please enroll first.' });
+    }
+
+    const lectureIdStr = lectureId.toString();
+    const existingIdx = (progress.lectureProgress || []).findIndex(
+      (lp) => lp.lectureId.toString() === lectureIdStr
+    );
+
+    const entry = {
+      lectureId,
+      courseId,
+      currentTime: currentTime ?? 0,
+      duration: duration ?? lecture.duration ?? 0,
+      completionPercentage: completionPercentage ?? 0,
+      isCompleted: isCompleted ?? false,
+      watchTime: watchTime ?? 0,
+      lastUpdated: lastUpdated ? new Date(lastUpdated) : new Date(),
+    };
+
+    if (existingIdx >= 0) {
+      const existing = progress.lectureProgress[existingIdx];
+      entry.watchTime = Math.max(entry.watchTime, existing.watchTime || 0);
+      entry.completionPercentage = Math.max(entry.completionPercentage, existing.completionPercentage || 0);
+      entry.isCompleted = entry.isCompleted || existing.isCompleted;
+      progress.lectureProgress[existingIdx] = entry;
+    } else {
+      progress.lectureProgress = progress.lectureProgress || [];
+      progress.lectureProgress.push(entry);
+    }
+
+    if (entry.isCompleted) {
+      const alreadyCompleted = (progress.completedLectures || []).some(
+        (id) => id.toString() === lectureIdStr
+      );
+      if (!alreadyCompleted) {
+        progress.completedLectures = progress.completedLectures || [];
+        progress.completedLectures.push(lectureId);
+      }
+    }
+
+    progress.watchedDuration = (progress.lectureProgress || []).reduce(
+      (sum, lp) => sum + (lp.watchTime || 0), 0
+    );
+    progress.progress = progress.totalLectures > 0
+      ? Math.round((progress.completedLectures.length / progress.totalLectures) * 100)
+      : 0;
+    progress.lastAccessed = new Date();
+    await progress.save();
+
+    if (entry.isCompleted) {
+      import('../utils/achievementService.js')
+        .then(({ checkAndAwardAchievements }) => checkAndAwardAchievements(userId))
+        .catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      data: {
+        lectureProgress: entry,
+        courseProgress: progress.progress,
+        completedLectures: progress.completedLectures,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to update progress.' });
   }
 };
 

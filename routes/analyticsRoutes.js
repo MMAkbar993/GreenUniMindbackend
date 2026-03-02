@@ -45,8 +45,26 @@ router.get('/teachers/:teacherId/predictive', ...teacherMiddleware, stubPredicti
 router.get('/teachers/:teacherId/benchmark', ...teacherMiddleware, stubBenchmark);
 router.get('/teachers/:teacherId/widgets', ...teacherMiddleware, stubWidgets);
 router.get('/teachers/:teacherId/widgets/:widgetId', ...teacherMiddleware, stubWidget);
+router.post('/teachers/:teacherId/widgets', ...teacherMiddleware, (req, res) => {
+  res.status(201).json({ success: true, data: { _id: Date.now().toString(), ...req.body } });
+});
+router.put('/teachers/:teacherId/widgets/:widgetId', ...teacherMiddleware, (req, res) => {
+  res.json({ success: true, data: { _id: req.params.widgetId, ...req.body } });
+});
+router.delete('/teachers/:teacherId/widgets/:widgetId', ...teacherMiddleware, (req, res) => {
+  res.json({ success: true, data: { message: 'Widget deleted.' } });
+});
 router.get('/teachers/:teacherId/alerts', ...teacherMiddleware, stubAlerts);
 router.get('/teachers/:teacherId/alerts/:ruleId', ...teacherMiddleware, stubAlert);
+router.post('/teachers/:teacherId/alerts', ...teacherMiddleware, (req, res) => {
+  res.status(201).json({ success: true, data: { _id: Date.now().toString(), ...req.body } });
+});
+router.put('/teachers/:teacherId/alerts/:ruleId', ...teacherMiddleware, (req, res) => {
+  res.json({ success: true, data: { _id: req.params.ruleId, ...req.body } });
+});
+router.delete('/teachers/:teacherId/alerts/:ruleId', ...teacherMiddleware, (req, res) => {
+  res.json({ success: true, data: { message: 'Alert rule deleted.' } });
+});
 router.post('/teachers/:teacherId/export', ...teacherMiddleware, stubExport);
 
 export default router;

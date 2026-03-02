@@ -1,6 +1,7 @@
 import User from '../models/User.js';
 import Teacher from '../models/Teacher.js';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
+import { sendVerificationEmail } from '../utils/email.js';
 
 const parseSignupBody = (req) => {
   if (req.body.data) {
@@ -41,6 +42,8 @@ const createStudent = async (req, res) => {
       });
     }
 
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
     const user = await User.create({
       name: {
         firstName: name.firstName,
@@ -51,7 +54,13 @@ const createStudent = async (req, res) => {
       password: pass,
       role: 'student',
       gender: gender || undefined,
+      emailVerificationOTP: otp,
+      emailVerificationExpires: new Date(Date.now() + 10 * 60 * 1000),
     });
+
+    sendVerificationEmail(email.toLowerCase(), otp).catch((e) =>
+      console.warn('Failed to send verification email:', e.message)
+    );
 
     const accessToken = generateAccessToken(user._id, user.role);
     const refreshToken = generateRefreshToken(user._id);
@@ -113,6 +122,8 @@ const createTeacher = async (req, res) => {
       });
     }
 
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
     const user = await User.create({
       name: {
         firstName: name.firstName,
@@ -123,9 +134,15 @@ const createTeacher = async (req, res) => {
       password: pass,
       role: 'teacher',
       gender: gender || undefined,
+      emailVerificationOTP: otp,
+      emailVerificationExpires: new Date(Date.now() + 10 * 60 * 1000),
     });
 
     await Teacher.create({ user: user._id });
+
+    sendVerificationEmail(email.toLowerCase(), otp).catch((e) =>
+      console.warn('Failed to send verification email:', e.message)
+    );
 
     const accessToken = generateAccessToken(user._id, user.role);
     const refreshToken = generateRefreshToken(user._id);
@@ -184,4 +201,51 @@ const getMe = async (req, res) => {
   }
 };
 
-export { createStudent, createTeacher, getMe };
+const editProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (req.user._id.toString() !== id) {
+      return res.status(403).json({ success: false, message: 'You can only edit your own profile.' });
+    }
+
+    const allowedFields = ['name', 'gender', 'profileImg'];
+    const updates = {};
+    for (const key of allowedFields) {
+      if (req.body[key] !== undefined) {
+        updates[key] = req.body[key];
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid fields to update.' });
+    }
+
+    const user = await User.findByIdAndUpdate(id, updates, {
+      new: true,
+      runValidators: true,
+    }).select('-password');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        profileImg: user.profileImg,
+        gender: user.gender,
+        isEmailVerified: user.isEmailVerified,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to update profile.' });
+  }
+};
+
+export { createStudent, createTeacher, getMe, editProfile };

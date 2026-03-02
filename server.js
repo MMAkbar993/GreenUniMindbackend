@@ -1,6 +1,10 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import mongoSanitize from 'express-mongo-sanitize';
+import hpp from 'hpp';
 import connectDB from './config/database.js';
 import { seedAchievements } from './controllers/achievementController.js';
 import path from 'path';
@@ -32,6 +36,14 @@ import achievementRoutes from './routes/achievementRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
+import reviewRoutes from './routes/reviewRoutes.js';
+import questionRoutes from './routes/questionRoutes.js';
+import noteRoutes from './routes/noteRoutes.js';
+import bookmarkRoutes from './routes/bookmarkRoutes.js';
+import invoiceRoutes from './routes/invoiceRoutes.js';
+import oauthRoutes from './routes/oauthRoutes.js';
+import messageRoutes from './routes/messageRoutes.js';
+import subCategoryRoutes from './routes/subCategoryRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,18 +68,45 @@ const allowedOrigins = [
 
 const normalizeOrigin = (origin) => (origin || '').replace(/\/+$/, '');
 
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: false,
+}));
+
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // allow no-origin (e.g. same-origin, Postman)
+    if (!origin) return callback(null, true);
     const normalized = normalizeOrigin(origin);
     const allowed = allowedOrigins.includes(normalized);
-    // Return normalized origin so header never has trailing slash (avoids CORS mismatch)
     callback(allowed ? null : null, allowed ? normalized : false);
   },
   credentials: true,
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many requests, please try again later.' },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many auth attempts, please try again later.' },
+});
+
+app.use('/api/', apiLimiter);
+app.use('/api/auth/', authLimiter);
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+app.use(mongoSanitize());
+app.use(hpp());
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -89,6 +128,19 @@ app.use('/api/achievements', achievementRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/questions', questionRoutes);
+app.use('/api/notes', noteRoutes);
+app.use('/api/bookmarks', bookmarkRoutes);
+app.use('/api/invoices', invoiceRoutes);
+app.use('/api/oauth', oauthRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/sub-category', subCategoryRoutes);
+
+app.post('/api/errors', (req, res) => {
+  console.error('Client error report:', req.body);
+  res.json({ success: true });
+});
 
 app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'GreenUniMind API is running.' });

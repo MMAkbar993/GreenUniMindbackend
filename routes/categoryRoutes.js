@@ -130,4 +130,60 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/:id', async (req, res) => {
+  try {
+    const category = await Category.findById(req.params.id).lean();
+    if (!category) return res.status(404).json({ success: false, message: 'Category not found.' });
+    res.json({ success: true, data: category });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/:categoryId/courses', async (req, res) => {
+  try {
+    const category = await Category.findById(req.params.categoryId).lean();
+    if (!category) return res.status(404).json({ success: false, message: 'Category not found.' });
+    const Course = (await import('../models/Course.js')).default;
+    const courses = await Course.find({
+      category: { $regex: new RegExp(category.name, 'i') },
+      isPublished: true,
+      status: 'published',
+    }).lean();
+    res.json({ success: true, data: courses });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/create-category', async (req, res) => {
+  try {
+    const { name, description, icon } = req.body;
+    const slug = name.toLowerCase().replace(/\s+/g, '-');
+    const category = await Category.create({ name, slug, description, icon });
+    res.status(201).json({ success: true, data: category });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.patch('/:id', async (req, res) => {
+  try {
+    const category = await Category.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!category) return res.status(404).json({ success: false, message: 'Category not found.' });
+    res.json({ success: true, data: category });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    await Category.findByIdAndDelete(req.params.id);
+    res.json({ success: true, data: { message: 'Category deleted.' } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 export default router;
