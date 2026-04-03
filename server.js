@@ -127,6 +127,10 @@ app.use(cors({
     'X-Request-Timestamp',
     'X-Request-Nonce',
     'X-Request-Signature',
+    // RTK Query / fetch sends these on some GETs to bypass HTTP caches
+    'Cache-Control',
+    'Pragma',
+    'Expires',
   ],
   exposedHeaders: [
     'RateLimit-Limit',
