@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
 import hpp from 'hpp';
 import connectDB from './config/database.js';
@@ -73,9 +73,11 @@ const buildAllowedOrigins = () => {
     origins.push(
       'http://localhost:5173',
       'http://localhost:5174',
+      'http://localhost:8081',
       'http://localhost:8080',
       'http://127.0.0.1:5173',
       'http://127.0.0.1:5174',
+      'http://127.0.0.1:8081',
       'http://127.0.0.1:8080',
     );
   }
@@ -146,7 +148,7 @@ app.use(cors({
 // Key function: uses authenticated user ID when available, falls back to IP.
 const userOrIpKey = (req) => {
   if (req.user?.id) return `user_${req.user.id}`;
-  return req.ip;
+  return ipKeyGenerator(req.ip);
 };
 
 const apiLimiter = rateLimit({
@@ -155,7 +157,7 @@ const apiLimiter = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests, please try again later.' },
-  keyGenerator: (req) => req.ip,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
 const authLimiter = rateLimit({
