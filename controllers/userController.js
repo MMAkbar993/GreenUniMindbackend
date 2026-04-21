@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import Teacher from '../models/Teacher.js';
+import Progress from '../models/Progress.js';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
 import { sendVerificationEmail } from '../utils/email.js';
 
@@ -179,6 +180,13 @@ const createTeacher = async (req, res) => {
 const getMe = async (req, res) => {
   try {
     const user = req.user;
+    const enrolledProgress = await Progress.find({ user: user._id })
+      .select('course')
+      .lean();
+    const enrolledCourses = enrolledProgress
+      .map((item) => item?.course?.toString())
+      .filter(Boolean);
+
     res.status(200).json({
       success: true,
       data: {
@@ -189,6 +197,7 @@ const getMe = async (req, res) => {
         profileImg: user.profileImg,
         gender: user.gender,
         isEmailVerified: user.isEmailVerified,
+        enrolledCourses,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
