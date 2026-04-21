@@ -1,19 +1,6 @@
 import Course from '../models/Course.js';
 import Lecture from '../models/Lecture.js';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const UPLOAD_DIR = path.join(__dirname, '../uploads/courses');
-
-function ensureUploadDir() {
-  if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-  }
-}
+import { uploadCourseThumbnail, deleteCourseThumbnail } from '../utils/cloudinary.js';
 
 function parseCourseBody(req) {
   if (req.body.data) {
@@ -72,12 +59,9 @@ export const createCourse = async (req, res) => {
     let courseThumbnailPublicId = null;
     const file = req.file || (req.files && req.files.file ? req.files.file[0] : null) || null;
     if (file && file.buffer) {
-      ensureUploadDir();
-      const ext = path.extname(file.originalname) || '.jpg';
-      const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-      const filepath = path.join(UPLOAD_DIR, filename);
-      fs.writeFileSync(filepath, file.buffer);
-      courseThumbnail = `/uploads/courses/${filename}`;
+      const uploaded = await uploadCourseThumbnail(file.buffer, file.originalname);
+      courseThumbnail = uploaded.url;
+      courseThumbnailPublicId = uploaded.publicId;
     }
 
     const course = await Course.create({
@@ -236,12 +220,13 @@ export const editCourse = async (req, res) => {
 
     const thumbFile = req.file || (req.files && req.files.file ? req.files.file[0] : null) || null;
     if (thumbFile && thumbFile.buffer) {
-      ensureUploadDir();
-      const ext = path.extname(thumbFile.originalname) || '.jpg';
-      const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-      const filepath = path.join(UPLOAD_DIR, filename);
-      fs.writeFileSync(filepath, thumbFile.buffer);
-      updates.courseThumbnail = `/uploads/courses/${filename}`;
+      const uploaded = await uploadCourseThumbnail(thumbFile.buffer, thumbFile.originalname);
+      updates.courseThumbnail = uploaded.url;
+      updates.courseThumbnailPublicId = uploaded.publicId;
+
+      if (course.courseThumbnailPublicId) {
+        await deleteCourseThumbnail(course.courseThumbnailPublicId);
+      }
     }
 
     Object.assign(course, updates);
@@ -265,6 +250,9 @@ export const deleteCourse = async (req, res) => {
     }
     if (course.creator.toString() !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: 'You can only delete your own course.' });
+    }
+    if (course.courseThumbnailPublicId) {
+      await deleteCourseThumbnail(course.courseThumbnailPublicId);
     }
     await Lecture.deleteMany({ courseId: course._id });
     await course.deleteOne();
