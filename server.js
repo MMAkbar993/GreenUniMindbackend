@@ -15,7 +15,9 @@ const missing = requiredEnv.filter((k) => !process.env[k]?.trim());
 if (missing.length) {
   console.error('Missing required env vars:', missing.join(', '));
   console.error('Set them in Vercel: Project → Settings → Environment Variables');
-  process.exit(1);
+  if (!process.env.VERCEL) {
+    process.exit(1);
+  }
 }
 import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
@@ -49,11 +51,26 @@ const __dirname = path.dirname(__filename);
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-connectDB();
-
-seedAchievements().catch((err) => console.warn('Achievement seed:', err?.message || err));
-
 const app = express();
+
+let achievementsSeeded = false;
+
+const ensureDb = async (req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+  try {
+    await connectDB();
+    if (!achievementsSeeded) {
+      achievementsSeeded = true;
+      seedAchievements().catch((err) => console.warn('Achievement seed:', err?.message || err));
+    }
+    next();
+  } catch (err) {
+    console.error('Database middleware error:', err.message);
+    res.status(503).json({ success: false, message: 'Database unavailable' });
+  }
+};
 
 // ─── Trust proxy (required for rate limiting behind reverse proxies / Vercel) ───
 if (isProduction) {
@@ -117,6 +134,10 @@ app.use(cors({
     if (allowedOrigins.includes(normalized)) {
       return callback(null, normalized);
     }
+    // Vercel preview deployments (e.g. green-uni-mindforntend-xxx.vercel.app)
+    if (/^https:\/\/green-uni-mind[a-z0-9-]*\.vercel\.app$/i.test(normalized)) {
+      return callback(null, normalized);
+    }
     return callback(null, false);
   },
   credentials: true,
@@ -143,6 +164,8 @@ app.use(cors({
   maxAge: 86400,
 }));
 
+app.use(ensureDb);
+
 // ─── RATE LIMITING ──────────────────────────────────────────────────────────────
 // All limits are configurable via environment variables.
 // Key function: uses authenticated user ID when available, falls back to IP.
@@ -151,6 +174,8 @@ const userOrIpKey = (req) => {
   return ipKeyGenerator(req.ip);
 };
 
+const skipPreflight = (req) => req.method === 'OPTIONS';
+
 const apiLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
   max: parseInt(process.env.RATE_LIMIT_MAX || '200', 10),
@@ -158,6 +183,7 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests, please try again later.' },
   keyGenerator: (req) => ipKeyGenerator(req.ip),
+  skip: skipPreflight,
 });
 
 const authLimiter = rateLimit({
@@ -167,6 +193,7 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, message: 'Too many auth attempts, please try again later.' },
   skipSuccessfulRequests: true,
+  skip: skipPreflight,
 });
 
 const aiLimiter = rateLimit({
@@ -176,6 +203,7 @@ const aiLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   message: { success: false, message: 'AI request limit reached. Please wait before trying again.' },
+  skip: skipPreflight,
 });
 
 const paymentLimiter = rateLimit({
@@ -185,6 +213,7 @@ const paymentLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   message: { success: false, message: 'Too many payment requests. Please try again later.' },
+  skip: skipPreflight,
 });
 
 const uploadLimiter = rateLimit({
@@ -194,6 +223,7 @@ const uploadLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   message: { success: false, message: 'Upload limit reached. Please try again later.' },
+  skip: skipPreflight,
 });
 
 app.use('/api/', apiLimiter);
@@ -250,7 +280,14 @@ app.get('/health', (req, res) => {
   res.json({ success: true, message: 'GreenUniMind API is running.' });
 });
 
+export default app;
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
-});
+if (!process.env.VERCEL) {
+  connectDB()
+    .then(() => seedAchievements().catch((err) => console.warn('Achievement seed:', err?.message || err)))
+    .catch((err) => console.error('Startup DB error:', err.message));
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
+  });
+}
